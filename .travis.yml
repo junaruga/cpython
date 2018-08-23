@@ -1,4 +1,4 @@
-language: c
+language: generic
 dist: trusty
 sudo: false
 group: beta
@@ -22,16 +22,17 @@ env:
     # OpenSSL ignores LDFLAGS when linking bin/openssl
     - LD_RUN_PATH="${OPENSSL_DIR}/lib"
 
-branches:
-  only:
-    - master
-    - /^\d\.\d$/
-    - buildbot-custom
+# branches:
+#   only:
+#     - master
+#     - /^\d\.\d$/
+#     - buildbot-custom
 
 matrix:
   fast_finish: true
   allow_failures:
     - env: OPTIONAL=true
+    - env: CC=gcc-8 CXX=g++-8 AR=gcc-ar-8 OPTIONAL=true
   include:
     - os: linux
       language: c
@@ -67,9 +68,8 @@ matrix:
         - HOMEBREW_NO_AUTO_UPDATE=1 brew install xz python3
         - export PATH=$(brew --prefix)/bin:$(brew --prefix)/sbin:$PATH
     - os: linux
-      language: c
-      compiler: gcc
-      env: OPTIONAL=true
+      language: generic
+      env: CC=gcc-8 CXX=g++-8 AR=gcc-ar-8 OPTIONAL=true
       addons:
         apt:
           packages:
@@ -84,16 +84,37 @@ matrix:
         - ./venv/bin/python -m test.pythoninfo
       script:
         # Skip tests that re-run the entire test suite.
-        - xvfb-run ./venv/bin/python -m coverage run --pylib -m test --fail-env-changed -uall,-cpu -x test_multiprocessing_fork -x test_multiprocessing_forkserver -x test_multiprocessing_spawn -x test_concurrent_futures
+        - travis_wait 80 xvfb-run ./venv/bin/python -m coverage run --pylib -m test --fail-env-changed -uall,-cpu -x test_multiprocessing_fork -x test_multiprocessing_forkserver -x test_multiprocessing_spawn -x test_concurrent_futures
       after_script:  # Probably should be after_success once test suite updated to run under coverage.py.
         # Make the `coverage` command available to Codecov w/ a version of Python that can parse all source files.
         - source ./venv/bin/activate
         - make coverage-lcov
-        - bash <(curl -s https://codecov.io/bash)
+        - travis_wait 80 bash <(curl -s https://codecov.io/bash)
 
 
 before_install:
   - set -e
+  - |
+    if [[ "${TRAVIS_OS_NAME}" == "linux" ]]
+    then
+      # https://launchpad.net/~ubuntu-toolchain-r/+archive/ubuntu/test
+      sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+      sudo apt-get update -qq
+      if [[ "${CC}" =~ ^gcc- ]]
+      then
+        echo "Installing ${CC}."
+        sudo apt-get install -qq "${CC}"
+        # Remove gcc to prevent it run unintentionally.
+        sudo rm -fv "$(which gcc)"
+      fi
+      if [[ "${CXX}" =~ ^g\+\+- ]]
+      then
+        echo "Installing ${CXX}."
+        sudo apt-get install -qq "${CXX}"
+        # Remove g++ to prevent it run unintentionally.
+        sudo rm -fv "$(which g++)"
+      fi
+    fi
   - |
       # Check short-circuit conditions
       if [[ "${TESTING}" != "docs" ]]
